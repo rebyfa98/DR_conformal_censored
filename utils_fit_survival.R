@@ -66,9 +66,15 @@ fit_models_cox <- function(
   mdl_C <- coxph(fmla_C, data = data_train, x = TRUE, method = 'breslow')
   
   # Determine prediction time points
-  pred_time_T <- sort(unique(data_calib$censored_T[data_calib$event]))
-  pred_time_T_test <- sort(unique(data_test$censored_T[data_test$event]))
-  pred_time_C <- sort(unique(data_calib$censored_T[data_calib$event_C]))
+  pred_time_T <- sort(unique(data_calib$censored_T[data_calib$event & 
+                      data_calib$censored_T>=min(data_train$censored_T[data_train$event]) &
+                      data_calib$censored_T<=max(data_train$censored_T[data_train$event])]))
+  pred_time_T_test <- sort(unique(data_test$censored_T[data_test$event &
+                           data_test$censored_T>=min(data_train$censored_T[data_train$event]) &
+                           data_test$censored_T<=max(data_train$censored_T[data_train$event])]))
+  pred_time_C <- sort(unique(data_calib$censored_T[data_calib$event_C &
+                             data_calib$censored_T>=min(data_train$censored_T[data_train$event_C]) &
+                             data_calib$censored_T<=max(data_train$censored_T[data_train$event_C])]))
   
   # Generate survival probability predictions
   list( 
