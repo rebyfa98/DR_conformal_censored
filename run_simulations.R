@@ -20,7 +20,6 @@ suppressMessages(library(BiocParallel))  # Parallel computing support
 #' @param data_generating_process A string specifying the data generation method: 
 #'   - "exp" for exponential survival data.
 #'   - "lognorm" for lognormal survival data.
-#'   - "mis" for mis-specified survival data.
 #' @param model A string specifying the survival model type: 
 #'   - "cox" for Cox proportional hazards model.
 #'   - "rsf" for Random Survival Forest (RSF).
@@ -44,23 +43,21 @@ simulate_experiment <- function(seed, data_generating_process, model, ...) {
     sim_data <- simulate_exponential_data(seed = seed, ...)  # Pass additional parameters
   } else if (data_generating_process == "lognorm") {
     sim_data <- simulate_lognorm_data(seed = seed, ...)      # Pass additional parameters
-  } else if (data_generating_process == "mis") {
-    sim_data <- simulate_mis_data(seed = seed, ...)          # Pass additional parameters
   } else {
     stop("Invalid data generating process. Choose from 'exp', 'lognorm', or 'mis'.")
   }
   
   # Step 2: Apply the IPCW/AIPCW method to compute predictive bounds and coverage
   result <- run_methods_aipcw(
-    data = sim_data$data,    # Survival dataset
+    data = sim_data$data,     # Survival dataset
     T_true = sim_data$T_true, # True event times before censoring
-    model = model            # Chosen survival model
+    model = model             # Chosen survival model
   )
   
   return(result)  # Return computed coverage and bounds
 }
 
-################# EXAMPLE: RUN MULTIPLE SIMULATIONS ##################
+################# EXAMPLE 1: RUN MULTIPLE SIMULATIONS ##################
 ## Run multiple simulation experiments in parallel
 ##
 ## This example runs the `simulate_experiment` function 100 times 
@@ -82,6 +79,35 @@ system.time({
                       simulate_experiment, 
                       data_generating_process = 'exp', 
                       model = 'rsf',
+                      BPPARAM = bbparam)
+})
+
+# Save results to file for later analysis
+save(results, file = "result.RData")
+
+################# EXAMPLE 2: RUN MULTIPLE SIMULATIONS ##################
+## Run multiple simulation experiments in parallel
+##
+## This example runs the `simulate_experiment` function 100 times 
+## using parallel processing to speed up computation.
+##
+## Adjust the number of workers (`workers = 12`) based on available CPU cores.
+##
+## In this example, we generate data using the LogNormal process (setting 3 
+## in the paper) and fit the Cox model.
+## We pass additional parameters for the data-generating process, A_T and A_C
+
+# Define parallel backend with 12 workers
+bbparam <- SnowParam(workers = 12, type = "SOCK")  
+
+# Measure execution time and run simulations
+system.time({
+  results <- bplapply(1:100, 
+                      simulate_experiment, 
+                      data_generating_process = 'lognorm', 
+                      A_T = function(x) (all(x[1:5] > 0) & all(x[6:10] < 0)),
+                      A_C = function(x) (x[1] > 0 & x[2] < 0),
+                      model = 'cox',
                       BPPARAM = bbparam)
 })
 
