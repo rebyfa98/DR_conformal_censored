@@ -171,7 +171,7 @@ run_methods_aipcw <- function(
   while (hat_W[j] >= 0) {
     j <- j + 1
   }
-  hat_beta_index_ipcw <- j - 1
+  hat_beta_index_ipcw <- max(j - 1, 1) # Ensure at least index 1
   
   # Compute IPCW lower bounds
   lower_bnd_calib_ipcw <- sapply(1:n_calib, surv_quantile, 
@@ -208,4 +208,98 @@ run_methods_aipcw <- function(
     lower_bnd_test_aipcw = lower_bnd_test_aipcw
   )
 }
+
+#' Run OR and COR methods to compute lower predictive bounds and coverage
+#'
+#' This function implements Outcome Regression (OR) and Calibrated Outcome
+#' Regression (COR) to estimate predictive lower bounds for survival times 
+#' and empirical coverage.
+#'
+#' @param data A data frame containing survival and censoring information.
+#' @param T_true Vector of true event times corresponding to `data`.
+#' @param model A string specifying the survival model type ("cox", "rsf", or "sl").
+#' @param n_train Number of training samples.
+#' @param n_calib Number of calibration samples.
+#' @param alpha Desired coverage level (e.g., 0.1 means 90% coverage).
+#' @param beta_grid A numeric sequence defining quantile grid points for prediction.
+#' @return A list containing empirical coverage rates, estimated beta indices, and lower bounds.
+#'
+run_methods_cor <- function(
+    data,
+    T_true, 
+    model,
+    n_train = 1000,
+    n_calib = 1000,
+    alpha = 0.1, 
+    beta_grid = seq(0, 1, by = 0.001)
+) {
+  
+  n <- nrow(data)
+  n_test <- n - n_train - n_calib  # Compute number of test samples
+  
+  # Split data into training, calibration, and test sets
+  data_train <- data[1:n_train, ]
+  data_calib <- data[(n_train + 1):(n_train + n_calib), ]
+  data_test  <- data[(n_train + n_calib + 1):n, ]
+  T_calib <- T_true[(n_train + 1):(n_train + n_calib)]
+  T_test  <- T_true[(n_train + n_calib + 1):n] 
+  
+  # Fit the specified survival model and obtain predictions
+  pred <- fit_models(model, data_train, data_calib, data_test)
+  pred_time_T <- pred$pred_time_T
+  pred_surv_T <- pred$pred_surv_T
+  pred_time_T_test <- pred$pred_time_T_test
+  pred_surv_T_test <- pred$pred_surv_T_test 
+  pred_time_C <- pred$pred_time_C
+  pred_surv_C <- pred$pred_surv_C
+  
+  # OR method: the estimated LPB is the predicted quantile at level alpha
+  alpha_index <- which.min(abs(beta_grid - alpha))
+  
+  # COR method
+  hat_P <- 1
+  j <- 1
+  while (hat_P[j] >= 1-alpha){
+    num <- numeric(n_calib)
+    for (i in 1:n_calib) {
+      num[i] <- surv_curve(i, surv_quantile(i, j, pred_time_T, pred_surv_T,beta_grid),
+                           pred_time_T, pred_surv_T)
+    }
+    hat_P <- c(hat_P, mean(num))
+    j <- j + 1 
+  }
+  
+  # Remove the first placeholder
+  hat_P <- hat_P[-1]
+  
+  # Select beta index
+  hat_beta_index <- max(j - 1, 1) # Ensure at least index 1
+  hat_beta <- beta_grid[hat_beta_index]
+  
+  # Compute OR and COR lower bounds
+  lower_bnd_calib_or  <- sapply(1:n_calib, surv_quantile, 
+                                alpha_index, pred_time_T, 
+                                pred_surv_T, beta_grid)
+  lower_bnd_test_or  <- sapply(1:n_test, surv_quantile, 
+                               alpha_index, pred_time_T_test, 
+                               pred_surv_T_test, beta_grid)
+  lower_bnd_calib_cor  <- sapply(1:n_calib, surv_quantile, 
+                                 hat_beta_index, pred_time_T, 
+                                 pred_surv_T, beta_grid)
+  lower_bnd_test_cor  <- sapply(1:n_test, surv_quantile, 
+                                hat_beta_index, pred_time_T_test, 
+                                pred_surv_T_test, beta_grid)
+  
+  # Compute empirical coverage for calibration and test sets
+  list(
+    emp_coverage_calib_or = mean(T_calib >= lower_bnd_calib_or),
+    emp_coverage_calib_cor = mean(T_calib >= lower_bnd_calib_cor),
+    emp_coverage_test_or = mean(T_test >= lower_bnd_test_or),
+    emp_coverage_test_cor = mean(T_test >= lower_bnd_test_cor),
+    hat_beta_index = hat_beta_index,
+    lower_bnd_test_or = lower_bnd_test_or,
+    lower_bnd_test_cor = lower_bnd_test_cor
+  )
+}
+
 
