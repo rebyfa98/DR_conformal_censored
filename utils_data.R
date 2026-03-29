@@ -4,124 +4,235 @@
 ## Generates input survival data in the format needed for the method.
 ########################################
 
-#' Simulate exponential survival data
+#' Build a survival dataset in the common format used by the method
 #'
-#' @param seed Random seed
-#' @param n Sample size
-#' @param beta_T Coefficients for generating survival time T
-#' @param beta_C Coefficients for generating survival time C
-#' @param lambda_T Rate for generating survival time T
-#' @param lambda_C Rate for generating censoring time C
+#' @param X Covariate matrix
+#' @param T_true True event times
+#' @param C_true True censoring times
 #' @return A list containing:
-#'   \item{data}{Dataset containing covariates, censored survival times, 
-#'   and event indicators(data frame)}
+#'   \item{data}{Dataset containing covariates, censored survival times,
+#'   and event indicators (data frame)}
 #'   \item{T_true}{True survival times before censoring (numeric vector)}
 #'
-simulate_exponential_data <- function(
-    seed,
-    n = 3000,         # Total sample size
-    beta_T = c(-1, 1),# Regression coefficients for survival time generation
-    beta_C = c(0, 0), # Regression coefficients for censoring time generation
-    lambda_T = 0.01,  # Rate parameter for survival time distribution
-    lambda_C = 0.01  # Rate parameter for censoring time distribution
-) {
-  set.seed(seed)
-  p <- length(beta_T) # Number of covariates
-  
-  # Helpers for data simulation
-  gen_X <- function(p, n) rnorm(p * n, 0, 1)
-  gen_T <- function(lambda, x, beta) rexp(1, lambda * exp(x %*% beta))
-  gen_C <- function(lambda, x, beta) rexp(1, lambda * exp(x %*% beta))
-  
-  # Generate data
-  X <- matrix(gen_X(p, n), ncol = p)
-  T <- apply(X, 1, gen_T, lambda = lambda_T, beta = beta_T)
-  C <- apply(X, 1, gen_C, lambda = lambda_C, beta = beta_C)
-  
+build_survival_dataset <- function(X, T_true, C_true) {
   # Determine censoring status
-  event    <- (T <= C)
-  event_C  <- (T > C)
-  censored_T <- pmin(T, C)
-  
+  event <- T_true <= C_true
+
   # Organize into a data.frame
-  data <- data.frame(X = X, 
-                     censored_T = censored_T, 
-                     event = event, 
-                     event_C = event_C)
-  
+  data <- data.frame(
+    X = X,
+    censored_T = pmin(T_true, C_true),
+    event = event,
+    event_C = !event
+  )
+
   # Name covariates
-  xnames <- paste0("X", 1:p)
-  colnames(data)[1:p] <- xnames
-  
+  p <- ncol(X)
+  colnames(data)[seq_len(p)] <- paste0("X", seq_len(p))
+
   list(
     data = data,
-    T_true = T # Keep track of true survival times
+    T_true = T_true
   )
 }
 
-#' Simulate lognormal survival data
+#' Simulate survival data for setting 1
 #'
-#' Generates synthetic survival data where survival and censoring times follow a lognormal distribution.
-#'
-#' @param seed Random seed for reproducibility
+#' @param seed Random seed
 #' @param n Sample size
-#' @param p Number of covariates
-#' @param A_T A function defining the treatment effect condition based on covariates `x`.
-#' @param A_C A function defining the censoring condition based on covariates `x`.
-#' @return A list containing:
-#'   \item{data}{A data frame with generated covariates, censored survival times, and event indicators.}
-#'   \item{T_true}{A numeric vector of true survival times before censoring.}
+#' @return A list containing the simulated dataset and the true event times
 #'
-simulate_lognorm_data <- function(
-    seed,
-    n = 3000,
-    p = 100,
-    A_T = function(x) (x[2] < 0 & x[3] > 0 & x[4] > 0),
-    A_C = function(x) (x[1] > 0)
-) {
+simulate_setting1 <- function(seed, n = 3000) {
   set.seed(seed)
-  
-  # Helpers for data simulation
-  gen_X <- function(p, n) runif(p * n, -1, 1)  # Generate independent covariates
-  
-  gen_T <- function(x) {
-    if (A_T(x)) {
-      return(exp(rnorm(1, log(10), 1)))  # Shorter survival time
-    } else {
-      return(exp(rnorm(1, log(1000), 1)))  # Longer survival time
-    }
-  }
-  
-  gen_C <- function(x) {
-    if (A_C(x)) {
-      return(exp(rnorm(1, log(10), 1)))  # Shorter censoring time
-    } else {
-      return(exp(rnorm(1, log(1000), 1)))  # Longer censoring time
-    }
-  }
-  
+
+  p <- 2
+
   # Generate data
-  X <- matrix(gen_X(p, n), ncol = p)
-  T <- apply(X, 1, gen_T)  # True survival times
-  C <- apply(X, 1, gen_C)  # Censoring times
-  
-  # Determine censoring status
-  event    <- (T <= C)  # Event indicator (1 = observed, 0 = censored)
-  event_C  <- (T > C)   # Censoring indicator (opposite of event)
-  censored_T <- pmin(T, C)  # Observed survival times (either T or C)
-  
-  # Organize into a data frame
-  data <- data.frame(X = X, 
-                     censored_T = censored_T, 
-                     event = event, 
-                     event_C = event_C)
-  
-  # Name covariates
-  xnames <- paste0("X", 1:p)
-  colnames(data)[1:p] <- xnames
-  
-  list(
-    data = data,
-    T_true = T  # Keep track of true survival times before censoring
+  X <- matrix(rnorm(n * p), ncol = p)
+  T_true <- apply(X, 1, function(x) rexp(1, rate = exp(-x[1] + x[2])))
+  C_true <- rexp(n, rate = 1 / 3)
+
+  build_survival_dataset(X, T_true, C_true)
+}
+
+#' Simulate survival data for setting 2
+#'
+#' @param seed Random seed
+#' @param n Sample size
+#' @return A list containing the simulated dataset and the true event times
+#'
+simulate_setting2 <- function(seed, n = 3000) {
+  set.seed(seed)
+
+  p <- 10
+
+  # Generate data
+  X <- matrix(rnorm(n * p), ncol = p)
+  T_true <- apply(
+    X,
+    1,
+    function(x) rexp(1, rate = (2 / 3) * exp((x[1] * x[2] - x[3]^2) / 3))
+  )
+  C_true <- apply(
+    X,
+    1,
+    function(x) rexp(1, rate = (2 / 3) * exp((x[3] - x[4]^2) / 3))
+  )
+
+  build_survival_dataset(X, T_true, C_true)
+}
+
+#' Simulate survival data for setting 3
+#'
+#' @param seed Random seed
+#' @param n Sample size
+#' @return A list containing the simulated dataset and the true event times
+#'
+simulate_setting3 <- function(seed, n = 3000) {
+  set.seed(seed)
+
+  p <- 100
+
+  # Generate data
+  X <- matrix(runif(n * p, min = -1, max = 1), ncol = p)
+
+  A_T <- function(x) all(x[1:5] > 0) && all(x[6:10] < 0)
+  A_C <- function(x) x[1] > 0 && x[2] < 0
+
+  T_true <- apply(
+    X,
+    1,
+    function(x) exp(rnorm(1, mean = if (A_T(x)) log(10) else log(1000), sd = 1))
+  )
+  C_true <- apply(
+    X,
+    1,
+    function(x) exp(rnorm(1, mean = if (A_C(x)) log(10) else log(1000), sd = 1))
+  )
+
+  build_survival_dataset(X, T_true, C_true)
+}
+
+#' Simulate survival data for setting 4
+#'
+#' @param seed Random seed
+#' @param n Sample size
+#' @return A list containing the simulated dataset and the true event times
+#'
+simulate_setting4 <- function(seed, n = 3000) {
+  set.seed(seed)
+
+  p <- 100
+
+  # Generate data
+  X <- matrix(runif(n * p, min = -1, max = 1), ncol = p)
+
+  A <- function(x) x[2] < 0 && x[3] > 0 && x[4] > 0
+  A_C <- function(x) x[1] < 0
+
+  T_true <- apply(
+    X,
+    1,
+    function(x) exp(rnorm(1, mean = if (A(x)) log(10) else log(1000), sd = 1))
+  )
+  C_true <- apply(
+    X,
+    1,
+    function(x) exp(rnorm(1, mean = if (A_C(x)) log(10) else log(1000), sd = 1))
+  )
+
+  build_survival_dataset(X, T_true, C_true)
+}
+
+#' Simulate survival data for setting 5
+#'
+#' @param seed Random seed
+#' @param n Sample size
+#' @return A list containing the simulated dataset and the true event times
+#'
+simulate_setting5 <- function(seed, n = 3000) {
+  set.seed(seed)
+
+  p <- 100
+
+  # Generate data
+  X <- matrix(runif(n * p), ncol = p)
+
+  T_true <- apply(
+    X,
+    1,
+    function(x) {
+      meanlog <- (x[1] - 0.5)^2 +
+        x[2] * x[3] -
+        as.numeric(x[3] < 0.5 && x[4] > 0.5) +
+        sqrt(x[5]) +
+        (x[6] + x[7] - 0.5)^3
+      rlnorm(1, meanlog = meanlog, sdlog = 1)
+    }
+  )
+  C_true <- apply(
+    X,
+    1,
+    function(x) {
+      meanlog <- (x[1] + x[2] - 1)^2 -
+        x[3] * x[4] +
+        as.numeric(x[6] > 0.5) -
+        (x[7] - 0.5)^3 * x[8]
+      rlnorm(1, meanlog = meanlog, sdlog = 1)
+    }
+  )
+
+  build_survival_dataset(X, T_true, C_true)
+}
+
+#' Simulate survival data for setting 6
+#'
+#' @param seed Random seed
+#' @param n Sample size
+#' @return A list containing the simulated dataset and the true event times
+#'
+simulate_setting6 <- function(seed, n = 3000) {
+  set.seed(seed)
+
+  p <- 100
+
+  # Generate data
+  X <- matrix(runif(n * p), ncol = p)
+
+  T_true <- apply(
+    X,
+    1,
+    function(x) {
+      meanlog <- 0.126 * (x[1] + sqrt(x[3] * x[5])) + 1
+      sdlog <- (x[2] + 2) / 4
+      rlnorm(1, meanlog = meanlog, sdlog = sdlog)
+    }
+  )
+  C_true <- apply(X, 1, function(x) rexp(1, rate = x[6] / 2))
+
+  build_survival_dataset(X, T_true, C_true)
+}
+
+#' Simulate survival data for one of the six settings
+#'
+#' @param setting A string specifying the synthetic setting
+#' @param seed Random seed
+#' @param n Sample size
+#' @return A list containing the simulated dataset and the true event times
+#'
+simulate_data <- function(setting, seed, n = 3000) {
+  setting <- match.arg(
+    setting,
+    choices = paste0("setting", 1:6)
+  )
+
+  switch(
+    setting,
+    setting1 = simulate_setting1(seed = seed, n = n),
+    setting2 = simulate_setting2(seed = seed, n = n),
+    setting3 = simulate_setting3(seed = seed, n = n),
+    setting4 = simulate_setting4(seed = seed, n = n),
+    setting5 = simulate_setting5(seed = seed, n = n),
+    setting6 = simulate_setting6(seed = seed, n = n)
   )
 }
